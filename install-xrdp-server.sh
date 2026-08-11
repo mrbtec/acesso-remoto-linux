@@ -2,7 +2,7 @@
 # =============================================================================
 # install-xrdp-server.sh
 # Instalação automatizada do servidor XRDP com TLS no Ubuntu
-# Versão: 1.0
+# Versão: 2.0 — com otimizações de desempenho para sessões remotas
 # =============================================================================
 
 set -euo pipefail
@@ -266,6 +266,206 @@ configure_xrdp_ini() {
 }
 
 # -----------------------------------------------------------------------------
+# Otimizações de desempenho no xrdp.ini
+# -----------------------------------------------------------------------------
+optimize_xrdp_ini() {
+    step "Aplicando otimizações de desempenho no xrdp.ini"
+
+    local ini="/etc/xrdp/xrdp.ini"
+
+    # Profundidade de cor — balanceamento qualidade/bandwidth
+    sed -i "s|^max_bpp=.*|max_bpp=24|"         "$ini"
+    sed -i "s|^xserverbpp=.*|xserverbpp=24|"   "$ini"
+
+    # Compressão
+    sed -i "s|^bitmap_compression=.*|bitmap_compression=true|" "$ini"
+    sed -i "s|^bulk_compression=.*|bulk_compression=true|"     "$ini"
+
+    # Rede — latência e buffer
+    sed -i "s|^tcp_nodelay=.*|tcp_nodelay=true|"               "$ini"
+    sed -i "s|^tcp_keepalive=.*|tcp_keepalive=true|"           "$ini"
+
+    # Buffer de envio TCP — crítico para resolução HD/4K
+    if grep -q "^tcp_send_buffer_bytes=" "$ini"; then
+        sed -i "s|^tcp_send_buffer_bytes=.*|tcp_send_buffer_bytes=4194304|" "$ini"
+    else
+        sed -i "/^tcp_keepalive=/a tcp_send_buffer_bytes=4194304" "$ini"
+    fi
+
+    success "Otimizações de desempenho aplicadas no xrdp.ini."
+}
+
+# -----------------------------------------------------------------------------
+# Gerenciamento de sessões (sesman.ini)
+# -----------------------------------------------------------------------------
+configure_sesman() {
+    step "Otimizando gerenciamento de sessões (sesman.ini)"
+
+    local sesman="/etc/xrdp/sesman.ini"
+
+    if [[ ! -f "${sesman}.bak" ]]; then
+        cp "$sesman" "${sesman}.bak"
+        info "Backup criado: ${sesman}.bak"
+    fi
+
+    # Limite de sessões simultâneas
+    sed -i "s|^MaxSessions=.*|MaxSessions=50|"                       "$sesman"
+
+    # Limpeza de sessões desconectadas
+    sed -i "s|^KillDisconnected=.*|KillDisconnected=true|"           "$sesman"
+    sed -i "s|^DisconnectedTimeLimit=.*|DisconnectedTimeLimit=3600|" "$sesman"
+
+    success "Gerenciamento de sessões configurado."
+    info "  MaxSessions: 50"
+    info "  KillDisconnected: true (após 1h)"
+}
+
+# -----------------------------------------------------------------------------
+# Hardening do startwm.sh — evita tela preta e garante sessão estável
+# -----------------------------------------------------------------------------
+configure_startwm() {
+    [[ "$DESKTOP_CHOICE" == "none" ]] && return
+
+    step "Configurando /etc/xrdp/startwm.sh para sessões estáveis"
+
+    local startwm="/etc/xrdp/startwm.sh"
+
+    if [[ ! -f "${startwm}.bak" ]]; then
+        cp "$startwm" "${startwm}.bak"
+        info "Backup criado: ${startwm}.bak"
+    fi
+
+    local session_cmd=""
+    case "$DESKTOP_CHOICE" in
+        xfce)  session_cmd="startxfce4"       ;;
+        gnome) session_cmd="gnome-session"    ;;
+        kde)   session_cmd="startplasma-x11"  ;;
+        lxde)  session_cmd="startlxde"        ;;
+    esac
+
+    cat > "$startwm" << STARTWM_EOF
+#!/bin/sh
+# Gerado por install-xrdp-server.sh — NÃO EDITAR MANUALMENTE
+# Limpar variáveis herdadas para evitar tela preta
+unset DBUS_SESSION_BUS_ADDRESS
+unset XDG_RUNTIME_DIR
+
+# Carregar perfil do usuário
+if [ -r /etc/profile ]; then
+    . /etc/profile
+fi
+if [ -r ~/.profile ]; then
+    . ~/.profile
+fi
+
+# Iniciar sessão com D-Bus limpo
+exec dbus-launch --exit-with-session $session_cmd
+STARTWM_EOF
+
+    chmod +x "$startwm"
+    success "startwm.sh configurado para $DESKTOP_CHOICE (com unset DBUS + dbus-launch)."
+}
+
+# -----------------------------------------------------------------------------
+# Otimizações do desktop XFCE4 para sessão remota
+# -----------------------------------------------------------------------------
+optimize_xfce_desktop() {
+    [[ "$DESKTOP_CHOICE" != "xfce" ]] && return
+
+    step "Aplicando otimizações XFCE para sessão remota"
+
+    local real_user="${SUDO_USER:-$USER}"
+    local home_dir
+    home_dir=$(getent passwd "$real_user" | cut -d: -f6)
+
+    # Função auxiliar para executar xfconf-query como o usuário real
+    run_xfconf() {
+        sudo -u "$real_user" dbus-launch xfconf-query "$@" 2>/dev/null || true
+    }
+
+    # 1. Desabilitar compositor (transparência, sombras)
+    run_xfconf --channel=xfwm4 --property=/general/use_compositing \
+               --type=bool --set=false --create
+    success "Compositor XFCE desabilitado."
+
+    # 2. Wallpaper → cor sólida escura (reduz bandwidth)
+    run_xfconf --channel=xfce4-desktop \
+               --property=/backdrop/screen0/monitorVNC-0/workspace0/image-style \
+               --type=int --set=0 --create
+    run_xfconf --channel=xfce4-desktop \
+               --property=/backdrop/screen0/monitorVNC-0/workspace0/color-style \
+               --type=int --set=0 --create
+    info "Wallpaper configurado para cor sólida."
+
+    # 3. Desabilitar screensaver e light-locker via autostart override
+    local autostart_dir="$home_dir/.config/autostart"
+    mkdir -p "$autostart_dir"
+
+    for app in light-locker xfce4-screensaver xscreensaver; do
+        cat > "$autostart_dir/${app}.desktop" << DESKTOP_EOF
+[Desktop Entry]
+Hidden=true
+DESKTOP_EOF
+        chown "$real_user":"$real_user" "$autostart_dir/${app}.desktop"
+    done
+    success "Screensaver e light-locker desabilitados no autostart."
+
+    # 4. Desabilitar DPMS (power management de tela)
+    run_xfconf --channel=xfce4-power-manager \
+               --property=/xfce4-power-manager/dpms-enabled \
+               --type=bool --set=false --create
+    info "DPMS (power management de tela) desabilitado."
+
+    # 5. Configurar Polkit agent (evita popups de autenticação travados)
+    if [[ -f /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ]]; then
+        if ! grep -q "polkit-gnome" "$home_dir/.xsession" 2>/dev/null; then
+            sed -i '/^xfce4-session$/i /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &' \
+                "$home_dir/.xsession" 2>/dev/null || true
+        fi
+    fi
+
+    chown -R "$real_user":"$real_user" "$autostart_dir"
+    success "Otimizações XFCE aplicadas para sessão remota."
+}
+
+# -----------------------------------------------------------------------------
+# Tuning de kernel/rede (sysctl)
+# -----------------------------------------------------------------------------
+configure_sysctl() {
+    step "Configurando parâmetros de rede do kernel para XRDP"
+
+    local sysctl_file="/etc/sysctl.d/60-xrdp.conf"
+
+    cat > "$sysctl_file" << 'SYSCTL_EOF'
+# Otimizações de rede para XRDP
+# Gerado por install-xrdp-server.sh
+
+# Permite buffers TCP grandes (necessário para tcp_send_buffer_bytes=4MB no xrdp.ini)
+net.core.wmem_max = 8388608
+net.core.rmem_max = 8388608
+
+# Mantém TCP window scaling ativado
+net.ipv4.tcp_window_scaling = 1
+SYSCTL_EOF
+
+    sysctl -p "$sysctl_file" > /dev/null 2>&1
+    success "Parâmetros sysctl aplicados: net.core.wmem_max=8MB"
+}
+
+# -----------------------------------------------------------------------------
+# Limpeza opcional — remoção de áudio remoto
+# -----------------------------------------------------------------------------
+disable_audio_redirect() {
+    if dpkg -l | grep -q pulseaudio-module-xrdp 2>/dev/null; then
+        read -r -p "Deseja desabilitar redirecionamento de áudio RDP? [s/N] " resp
+        if [[ "$resp" =~ ^[sS]$ ]]; then
+            apt-get remove -y pulseaudio-module-xrdp 2>/dev/null || true
+            success "Módulo de áudio RDP removido."
+        fi
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Configurar UFW
 # -----------------------------------------------------------------------------
 configure_firewall() {
@@ -399,6 +599,17 @@ show_summary() {
     echo -e "  ${BOLD}Desktop:${NC}        ${DESKTOP_CHOICE:-detectado pelo sistema}"
     echo -e "  ${BOLD}Fail2Ban:${NC}       Ativo — jail xrdp (5 tentativas / ban 1h)"
     echo ""
+    echo -e "  ${BOLD}${CYAN}Otimizações aplicadas:${NC}"
+    echo -e "  - tcp_send_buffer: 4MB (era 32KB)"
+    echo -e "  - tcp_nodelay: ativado"
+    echo -e "  - max_bpp: 24"
+    if [[ "$DESKTOP_CHOICE" == "xfce" ]]; then
+        echo -e "  - Compositor XFCE: desabilitado"
+        echo -e "  - Screensaver/Lock: desabilitados"
+    fi
+    echo -e "  - sysctl: wmem_max=8MB"
+    echo -e "  - Sessões desconectadas: kill após 1h"
+    echo ""
     echo -e "  ${BOLD}${CYAN}Como conectar:${NC}"
     echo -e "  - Windows: mstsc.exe → ${server_ip}"
     echo -e "  - Linux:   xfreerdp /v:${server_ip} /u:SEU_USUARIO /tls-seclevel:1 /cert:ignore"
@@ -443,6 +654,15 @@ main() {
     configure_firewall
     enable_services
     configure_fail2ban
+
+    # --- Otimizações de desempenho ---
+    optimize_xrdp_ini
+    configure_sesman
+    configure_startwm
+    configure_sysctl
+    optimize_xfce_desktop
+    disable_audio_redirect
+
     show_summary
 }
 
