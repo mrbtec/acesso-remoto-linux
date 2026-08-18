@@ -512,6 +512,8 @@ SYSCTL_EOF
 validate_config() {
     step "Validando configuração SSH"
 
+    mkdir -p /run/sshd
+
     if sshd -t 2>/dev/null; then
         success "Configuração SSH válida (sshd -t)."
     else
