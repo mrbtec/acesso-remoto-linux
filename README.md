@@ -12,6 +12,8 @@ Documentação e scripts para configurar acesso remoto gráfico seguro em servid
 | [manual-tigervnc-ubuntu-en.md](manual-tigervnc-ubuntu-en.md) | 🇺🇸 English | TigerVNC installation manual |
 | [manual-xrdp-tls-ubuntu.md](manual-xrdp-tls-ubuntu.md) | 🇧🇷 Português | Manual completo de instalação do XRDP com TLS |
 | [manual-xrdp-tls-ubuntu-en.md](manual-xrdp-tls-ubuntu-en.md) | 🇺🇸 English | XRDP with TLS installation manual |
+| [manual-xrdp-via-cloudflare.md](manual-xrdp-via-cloudflare.md) | 🇧🇷 Português | Acesso remoto seguro ao XRDP via Cloudflare Zero Trust (sem abrir portas) |
+| [manual-xrdp-via-tailscale.md](manual-xrdp-via-tailscale.md) | 🇧🇷 Português | Acesso remoto seguro ao XRDP via Tailscale (mesh VPN / WireGuard) |
 | [install-xrdp-server.sh](install-xrdp-server.sh) | — | Script de instalação automatizada do XRDP |
 
 ---
