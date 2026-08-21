@@ -15,6 +15,9 @@ Documentação e scripts para configurar acesso remoto gráfico seguro em servid
 | [manual-xrdp-via-cloudflare.md](manual-xrdp-via-cloudflare.md) | 🇧🇷 Português | Acesso remoto seguro ao XRDP via Cloudflare Zero Trust (sem abrir portas) |
 | [manual-xrdp-via-tailscale.md](manual-xrdp-via-tailscale.md) | 🇧🇷 Português | Acesso remoto seguro ao XRDP via Tailscale (mesh VPN / WireGuard) |
 | [install-xrdp-server.sh](install-xrdp-server.sh) | — | Script de instalação automatizada do XRDP |
+| [ubuntu-post-install.sh](ubuntu-post-install.sh) | — | Script de pós-instalação para Xubuntu Desktop (SP/BR, teclado ABNT2, NTP.br) |
+| [update.sh](update.sh) | — | Atualização interativa completa do Ubuntu |
+| [auto-update.sh](auto-update.sh) | — | Atualização automática com suporte a cron, systemd timer e logging |
 
 ---
 
@@ -66,6 +69,25 @@ O script realiza automaticamente:
 - Liberação da porta 3389 no UFW
 - Integração com Fail2Ban (proteção contra força bruta)
 - Habilitação e inicialização dos serviços
+
+---
+
+## Pós-Instalação Automatizada (Xubuntu / BR)
+
+Para preparar um sistema Ubuntu recém-instalado com a interface **Xubuntu Desktop (XFCE)** e localização brasileira:
+
+```bash
+sudo bash ubuntu-post-install.sh
+```
+
+O script realiza automaticamente:
+- Definição do Fuso Horário para `America/Sao_Paulo` e Locale `pt_BR.UTF-8`
+- Configuração de Teclado **ABNT2** (`br`)
+- Sincronização de horário com **NTP.br** (`a.ntp.br`, `b.ntp.br`, `c.ntp.br`) e `ntpdate`
+- Atualização para repositórios espelho do Brasil (`br.archive.ubuntu.com`)
+- Instalação completa do pacote **`xubuntu-desktop`**
+- Instalação de utilitários essenciais (VLC, Remmina, GIMP, FFmpeg, Git, Vim, Htop, P7zip)
+- Ajustes de desempenho de kernel (`vm.swappiness=10`) e habilitação básica do UFW
 
 ---
 
