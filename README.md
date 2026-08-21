@@ -18,6 +18,7 @@ Documentação e scripts para configurar acesso remoto gráfico seguro em servid
 | [ubuntu-post-install.sh](ubuntu-post-install.sh) | — | Script de pós-instalação para Xubuntu Desktop (SP/BR, teclado ABNT2, NTP.br) |
 | [update.sh](update.sh) | — | Atualização interativa completa do Ubuntu |
 | [auto-update.sh](auto-update.sh) | — | Atualização automática com suporte a cron, systemd timer e logging |
+| [install-ufw.sh](install-ufw.sh) | — | Configuração segura do UFW (rede local + Tailscale, hardening sysctl) |
 
 ---
 
